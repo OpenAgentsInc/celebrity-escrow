@@ -2,7 +2,7 @@
 {
   "compilerOptions": {
     "allowJs": true,
-    "module": "umd",
+    "module": "esnext",
     "esModuleInterop": true,
     "target": "esnext",
     "lib": ["esnext", "dom"],
