@@ -1,10 +1,13 @@
-import { assert } from 'console';
 import {SimplePool, nip04, nip19, Event, getPublicKey, getEventHash, signEvent} from 'nostr-tools'
 import {sha256} from '@noble/hashes/sha256'
 import { bytesToHex } from '@noble/hashes/utils';
 
 const utf8Encoder = new TextEncoder()
 
+
+function assert(ok: boolean, msg: string) {
+  if (!ok) throw Error(msg)
+}
 
 interface SubsetContract {
   escrow_pub: string;
@@ -64,7 +67,7 @@ export class NostrEscrow {
     event_id: string
   ): Promise<FullContract> {
     const { type, data } = nip19.decode(nsec);
-    assert(type == "nsec");
+    assert(type == "nsec", "invalid nsec");
     const priv = data as string;
     const sub = await this.pool.get(this.relays, { ids: [event_id] });
 
@@ -104,7 +107,7 @@ export class NostrEscrow {
       maker_sig,
     ] = JSON.parse(plain);
 
-    assert(ver == 0);
+    assert(ver == 0, "invalid contract ");
 
     let taker_sig = null
 
@@ -113,7 +116,7 @@ export class NostrEscrow {
         ver,
         sig,
       ] = JSON.parse(plain_reply);
-      assert(ver == 0);
+      assert(ver == 0, "invalid contract ");
       taker_sig = sig
     }
 
@@ -219,7 +222,7 @@ export class NostrEscrow {
 
   private getPrivPub(nsec: string) {
     const { type, data } = nip19.decode(nsec);
-    assert(type == "nsec");
+    assert(type == "nsec", "invalid nsec");
     const priv = data as string;
     const pub = getPublicKey(priv);
     return [priv, pub ];
