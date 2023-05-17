@@ -3,6 +3,25 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, user-scalable=no">
+        <script src="https://unpkg.com/@cmdcode/tapscript@1.2.7"></script>
+        <script src="https://bundle.run/noble-secp256k1@1.2.14"></script>
+        <script src="https://bundle.run/buffer@6.0.3"></script>
+        <script src="https://bundle.run/bech32@2.0.0"></script>
+        <script>var Buffer = buffer.Buffer;</script>
+        <script>
+            function pubkeyToNpub( hex ) {
+                return bech32.bech32.encode( "npub", bech32.bech32.toWords( buffer.Buffer.from( hex, "hex" ) ) );
+            }
+            function pubkeyFromNpub( npub ) {
+                return buffer.Buffer.from( bech32.bech32.fromWords( bech32.bech32.decode( npub ).words ) ).toString( "hex" );
+            }
+            function privkeyToNsec( hex ) {
+                return bech32.bech32.encode( "nsec", bech32.bech32.toWords( buffer.Buffer.from( hex, "hex" ) ) );
+            }
+            function privkeyFromNsec( nsec ) {
+                return buffer.Buffer.from( bech32.bech32.fromWords( bech32.bech32.decode( nsec ).words ) ).toString( "hex" );
+            }
+        </script>
         <style>
             * {
                 box-sizing: border-box;
@@ -21,12 +40,18 @@
             h2 {
                 font-size: 1.5rem;
             }
-            input {
+            input, textarea {
                 line-height: 1.25;
                 width: 100%;
                 height: 1.8rem;
                 font-size: 1.15rem;
                 border: 1px solid grey;
+            }
+            textarea {
+                height: auto;
+            }
+            .taker_form {
+                display: none;
             }
             @media screen and (max-width: 600px) {
             }
@@ -39,7 +64,186 @@
             var $_GET = {}
             for ( var key of url_keys ) $_GET[ key ] = url_params.get( key );
         </script>
+        <script>
+            var createContract = async ( json ) => {
+                var pubkey = "abababababababababababababababababababababababababababababababab";
+                var script  = [ pubkeyFromNpub( json[ "maker_pub" ] ), 'OP_CHECKSIG', 'OP_SWAP', pubkeyFromNpub( json[ "taker_pub" ] ), 'OP_CHECKSIG', 'OP_ADD', 'OP_SWAP', pubkeyFromNpub( json[ "escrow_pub" ] ), 'OP_CHECKSIG', 'OP_ADD', 'OP_1', 'OP_GREATERTHAN' ];
+                // For tapscript spends, we need to convert this script into a 'tapleaf'.
+                var tapleaf = tapscript.Tap.encodeScript(script)
+                // Generate a tapkey that includes our leaf script. Also, create a merlke proof 
+                // (cblock) that targets our leaf and proves its inclusion in the tapkey.
+                var [ tpubkey, cblock ] = tapscript.Tap.getPubKey(pubkey, { target: tapleaf })
+                // A taproot address is simply the tweaked public key, encoded in bech32 format.
+                var address = tapscript.Address.p2tr.fromPubKey(tpubkey, 'regtest')
+                console.log( "address:", address );
+                var txid = prompt( "Please enter the txid of your deposit" );
+                var vout = prompt( "And its vout" );
+                var txid2 = prompt( "Please enter the txid of the second deposit" );
+                var vout2 = prompt( "And the second vout" );
+                vout2 = Number( vout2 );
+                var txdata = tapscript.Tx.create({
+                  vin  : [{
+                    txid: txid,
+                    vout: vout,
+                    prevout: {
+                      value: json[ "maker_sats" ],
+                      scriptPubKey: [ 'OP_1', tpubkey ]
+                    },
+                  },{
+                    txid: txid2,
+                    vout: vout2,
+                    prevout: {
+                      value: json[ "taker_sats" ],
+                      scriptPubKey: [ 'OP_1', tpubkey ]
+                    },
+                  }],
+                  vout : [{
+                    value: json[ "maker_sats" ] + json[ "taker_sats" ] - 500,
+                    // bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y
+                    scriptPubKey: tapscript.Address.toScriptPubKey(json[ "maker_address" ])
+                  }]
+                });
+                console.log( "txdata:", txdata );
+                var sig = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 0, { extension: tapleaf });
+                var sig1 = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 0, { extension: tapleaf });
+                var sig2 = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 1, { extension: tapleaf });
+                var sig3 = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 1, { extension: tapleaf });
+                txdata.vin[0].witness = [ sig, "", sig1, script, cblock ];
+                txdata.vin[1].witness = [ sig2, "", sig3, script, cblock ];
+                console.log( "sig:", sig.hex );
+                json[ "maker_sig" ] = sig.hex;
+                console.log( "json:", json );
+                console.log( "rawtx:", tapscript.Tx.encode( txdata ).hex );
+            }
+        </script>
     </head>
     <body>
+        <h1>Welcome to celebrity escrow</h1>
+        <div class="maker_form">
+            <p>Enter your nsec</p>
+            <p><input class="asec"></p>
+            <p>Enter a bitcoin address where the money should go if you win</p>
+            <p><input class="maker_address"></p>
+            <p>Enter your counterparty's npub</p>
+            <p><input class="bpub"></p>
+            <p>Enter your escrow's npub</p>
+            <p><input class="epub"></p>
+            <p>Enter your bet amount</p>
+            <p><input class="abet"></p>
+            <p>Enter your counterparty's bet amount</p>
+            <p><input class="bbet"></p>
+            <p>Enter the fee the escrow will get if there is a dispute</p>
+            <p><input class="efee"></p>
+            <p>Enter a description of the contract</p>
+            <p><textarea class="text"></textarea></p>
+            <p><button class="create">Create a contract</button></p>
+            <p><button class="taker_won">Taker won</button></p>
+        </div>
+        <div class="taker_form">
+            <h2>Do you approve this contract?</h2>
+            <p>Your escrow's npub</p>
+            <p><input class="epub" disabled></p>
+            <p>Maker's bet amount</p>
+            <p><input class="abet" disabled></p>
+            <p>Your bet amount</p>
+            <p><input class="bbet" disabled></p>
+            <p>Fee the escrow will get if there is a dispute</p>
+            <p><input class="efee" disabled></p>
+            <p>Description of your contract</p>
+            <p><textarea class="text" disabled></textarea></p>
+            <p><button class="approve">Approve contract</button></p>
+            <p><button class="maker_won">Maker won</button></p>
+        </div>
+        <script>
+            $( '.create' ).onclick = () => {
+                var maker_sec = ( $( '.asec' ).value );
+                var inter_pub = nobleSecp256k1.getPublicKey( privkeyFromNsec( maker_sec ), true ).substring( 2 );
+                var maker_pub = pubkeyToNpub( inter_pub );
+                var taker_pub = ( $( '.bpub' ).value );
+                var escrow_pub = ( $( '.epub' ).value );
+                var maker_sats = ( $( '.abet' ).value );
+                maker_sats = Number( maker_sats );
+                var taker_sats = ( $( '.bbet' ).value );
+                taker_sats = Number( taker_sats );
+                var escrow_sats = ( $( '.efee' ).value );
+                escrow_sats = Number( escrow_sats );
+                var contract_text = ( $( '.text' ).value );
+                var maker_address = ( $( '.maker_address' ).value );
+                var maker_sig = "";
+                var json = {
+                    maker_sec,
+                    maker_pub,
+                    taker_pub,
+                    escrow_pub,
+                    maker_sats,
+                    taker_sats,
+                    escrow_sats,
+                    contract_text,
+                    maker_address,
+                    maker_sig
+                }
+                sessionStorage[ "json" ] = JSON.stringify( json );
+                createContract( json );
+            }
+            if ( $_GET[ "role" ] == "taker" ) {
+                $( '.maker_form' ).style.display = "none";
+                $( '.taker_form' ).style.display = "block";
+                var json = { maker_sec: "nsec1hd5sm8cjvnttdde9d2pvjv42vj9svcrar728fy8h6l8hwmlvhmkqsvm95u", maker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", taker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", escrow_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", maker_sats: 5000, taker_sats: 5000, escrow_sats: 1000, contract_text: "test8", maker_address: "bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y" }
+                sessionStorage[ "json" ] = JSON.stringify( json );
+                $$( '.epub' )[ 1 ].value = json[ "escrow_pub" ];
+                $$( '.abet' )[ 1 ].value = json[ "maker_sats" ];
+                $$( '.bbet' )[ 1 ].value = json[ "taker_sats" ];
+                $$( '.efee' )[ 1 ].value = json[ "escrow_sats" ];
+                $$( '.text' )[ 1 ].value = json[ "contract_text" ];
+            }
+            $( '.approve' ).onclick = () => {
+                //todo: check if the maker deposited yet. If they did not, abort
+                var taker_address = prompt( 'Enter a bitcoin address where the money should go if you win' );
+                var taker_sec = prompt( 'Enter your nostr secret key' );
+                var pubkey = "abababababababababababababababababababababababababababababababab";
+                var json = JSON.parse( sessionStorage[ "json" ] );
+                var script  = [ pubkeyFromNpub( json[ "maker_pub" ] ), 'OP_CHECKSIG', pubkeyFromNpub( json[ "taker_pub" ] ), 'OP_CHECKSIGADD', pubkeyFromNpub( json[ "escrow_pub" ] ), 'OP_CHECKSIGADD', 'OP_1', 'OP_GREATERTHAN' ];
+                // For tapscript spends, we need to convert this script into a 'tapleaf'.
+                var tapleaf = tapscript.Tap.encodeScript(script)
+                // Generate a tapkey that includes our leaf script. Also, create a merlke proof 
+                // (cblock) that targets our leaf and proves its inclusion in the tapkey.
+                var [ tpubkey, cblock ] = tapscript.Tap.getPubKey(pubkey, { target: tapleaf })
+                // A taproot address is simply the tweaked public key, encoded in bech32 format.
+                var address = tapscript.Address.p2tr.fromPubKey(tpubkey, 'regtest')
+                console.log( "address:", address );
+                var txid = prompt( "Please enter the txid of your deposit" );
+                var vout = prompt( "And its vout" );
+                vout = Number( vout );
+                var txid2 = prompt( "Please enter the txid of the second deposit" );
+                var vout2 = prompt( "And the second vout" );
+                vout2 = Number( vout2 );
+                var txdata = tapscript.Tx.create({
+                  vin  : [{
+                    txid: txid,
+                    vout: vout,
+                    prevout: {
+                      value: json[ "taker_sats" ],
+                      scriptPubKey: [ 'OP_1', tpubkey ]
+                    },
+                  },{
+                    txid: txid2,
+                    vout: vout2,
+                    prevout: {
+                      value: json[ "taker_sats" ],
+                      scriptPubKey: [ 'OP_1', tpubkey ]
+                    },
+                  }],
+                  vout : [{
+                    value: json[ "maker_sats" ] + json[ "taker_sats" ] - 500,
+                    // bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y
+                    scriptPubKey: tapscript.Address.toScriptPubKey(taker_address)
+                  }]
+                });
+                console.log( "txdata:", txdata );
+                var sig = tapscript.Signer.taproot.sign( privkeyFromNsec( taker_sec ), txdata, 0, { extension: tapleaf });
+                var sig2 = tapscript.Signer.taproot.sign( privkeyFromNsec( taker_sec ), txdata, 1, { extension: tapleaf });
+                console.log( "taker address:", taker_address, "taker sig:", sig.hex );
+            }
+        </script>
     </body>
 </html>
