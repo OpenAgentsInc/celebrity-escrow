@@ -65,7 +65,7 @@
             for ( var key of url_keys ) $_GET[ key ] = url_params.get( key );
         </script>
         <script>
-            var createContract = async ( json ) => {
+            var createPreContract = async ( json ) => {
                 var pubkey = "abababababababababababababababababababababababababababababababab";
                 var script  = [ pubkeyFromNpub( json[ "maker_pub" ] ), 'OP_CHECKSIG', 'OP_SWAP', pubkeyFromNpub( json[ "taker_pub" ] ), 'OP_CHECKSIG', 'OP_ADD', 'OP_SWAP', pubkeyFromNpub( json[ "escrow_pub" ] ), 'OP_CHECKSIG', 'OP_ADD', 'OP_1', 'OP_GREATERTHAN' ];
                 // For tapscript spends, we need to convert this script into a 'tapleaf'.
@@ -105,18 +105,21 @@
                 });
                 console.log( "txdata:", txdata );
                 var sig = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 0, { extension: tapleaf });
-                var sig1 = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 0, { extension: tapleaf });
-                var sig2 = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 1, { extension: tapleaf });
-                var sig3 = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 1, { extension: tapleaf });
                 //first sig is maker's
                 //second sig is taker's
                 //third sig is escrow's
-                txdata.vin[0].witness = [ sig, sig1, "", script, cblock ];
-                txdata.vin[1].witness = [ sig2, "", sig3, script, cblock ];
                 console.log( "sig:", sig.hex );
                 json[ "maker_sig" ] = sig.hex;
-                console.log( "json:", json );
-                console.log( "rawtx:", tapscript.Tx.encode( txdata ).hex );
+                var params = {
+                    maker_nsec: json.maker_sec,
+                    escrow_pub: json.escrow_pub,
+                    maker_sats: json.maker_sats,
+                    taker_sats: json.taker_sats,
+                    escrow_sats: json.escrow_sats,
+                    contract_text: json.contract_text,
+                    maker_sig: sig.hex
+                }
+                createContract( params );
             }
         </script>
     </head>
@@ -211,7 +214,7 @@
                     maker_sig
                 }
                 sessionStorage[ "json" ] = JSON.stringify( json );
-                createContract( json );
+                createPreContract( json );
             }
             if ( $_GET[ "role" ] == "taker" ) {
                 $( '.maker_form' ).style.display = "none";
