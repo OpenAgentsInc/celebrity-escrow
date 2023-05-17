@@ -2,6 +2,7 @@ import {SimplePool, nip04, nip19, Event, getPublicKey, getEventHash, signEvent} 
 import {sha256} from '@noble/hashes/sha256'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import {secp256k1} from '@noble/curves/secp256k1'
+import {base64} from '@scure/base'
 
 const utf8Encoder = new TextEncoder()
 
@@ -9,6 +10,7 @@ const utf8Encoder = new TextEncoder()
 function assert(ok: boolean, msg: string) {
   if (!ok) throw Error(msg)
 }
+
 
 interface SubsetContract {
   escrow_pub: string;
@@ -92,21 +94,20 @@ export class NostrEscrow {
 
     const taker_reply = await this.pool.get(this.relays, { "#e": [event_id], authors: [taker_pub] });
 
-    const tweaked_priv = this.tweakPriv(priv, contract_hash)
-
-
     let plain: string;
     let plain_reply: string| null = null;
+    let shared_secret: string
     if (role == "taker") {
-      console.log("tweaked priv", tweaked_priv, "shared", secp256k1.getSharedSecret(tweaked_priv, "02" + maker_pub))
-      plain = await nip04.decrypt(tweaked_priv, maker_pub, sub.content);
+      const tweaked_pub = this.tweakPub(maker_pub, contract_hash)
+      shared_secret = base64.encode(secp256k1.getSharedSecret(priv, "02" + tweaked_pub).slice(1,33))
+      plain = await nip04.decrypt(priv, tweaked_pub, sub.content);
       if (taker_reply)
-        plain_reply = await nip04.decrypt(tweaked_priv, maker_pub, taker_reply.content);
+        plain_reply = await nip04.decrypt(priv, tweaked_pub, taker_reply.content);
     } else if (role == "maker") {
-      console.log("tweaked priv", tweaked_priv, "shared", secp256k1.getSharedSecret(tweaked_priv, "02" + taker_pub))
-      plain = await nip04.decrypt(tweaked_priv, taker_pub, sub.content);
+      const tweaked_pub = this.tweakPub(taker_pub, contract_hash)
+      plain = await nip04.decrypt(priv, tweaked_pub, sub.content);
       if (taker_reply)
-        plain_reply = await nip04.decrypt(tweaked_priv, taker_pub, taker_reply.content);
+        plain_reply = await nip04.decrypt(priv, tweaked_pub, taker_reply.content);
     } else {
       throw Error("only maker or taker can view the original contract");
     }
@@ -169,79 +170,19 @@ export class NostrEscrow {
 
   async createAcceptEvent(params: TakerAcceptParams): Promise<Event> {
     const [taker_priv, taker_pub] = this.getPrivPub(params.taker_nsec);
-    const tweaked_priv = this.tweakPriv(taker_priv, params.contract_hash)
+    const tweaked_pub = this.tweakPub(params.maker_pub, params.contract_hash)
     const ev = {
       kind: 3333,
       tags: [
         ["e", params.event_id],
       ],
       content: await nip04.encrypt(
-        tweaked_priv,
-        params.maker_pub,
+        taker_priv,
+        tweaked_pub,
         JSON.stringify([0, params.taker_sig])
       ),
     };
     return this.signEvent(ev, taker_pub, taker_priv);
-  }
-
-  async getEphemeralKey(role: string, maker_nsec: string, escrow_pub: string, event_id: string, contract_hash: string): Promise<string> {
-    const [priv, pub] = this.getPrivPub(maker_nsec);
-    const tweaked_priv = this.tweakPriv(priv, contract_hash)
-    return tweaked_priv
-  }
-
-  async getContractAsEscrow(nsec: string, ephemeral_key: string, event_id: string, contract_hash: string): Promise<FullContract> {
-    const sub = await this.pool.get(this.relays, { ids: [event_id] });
-    const taker_tag = sub.tags.find((el) => {
-      return el[0] == "p";
-    });
-    if (!taker_tag) throw Error("taker pub unknown");
-    const taker_pub = taker_tag[1];
-   
-    const maker_pub = sub.pubkey
-    const taker_reply = await this.pool.get(this.relays, { "#e": [event_id], authors: [taker_pub] });
-    
-    const plain = await nip04.decrypt(ephemeral_key, taker_pub, sub.content);
-    let plain_reply
-    if (taker_reply){
-      plain_reply = await nip04.decrypt(ephemeral_key, taker_pub, taker_reply.content);
-    }
-
-    const [
-      ver,
-      escrow_pub,
-      maker_sats,
-      taker_sats,
-      escrow_sats,
-      contract_text,
-      maker_sig,
-    ] = JSON.parse(plain);
-
-    assert(ver == 0, "invalid contract ");
-
-    let taker_sig = null
-
-    if (plain_reply) {
-      const [
-        ver,
-        sig,
-      ] = JSON.parse(plain_reply);
-      assert(ver == 0, "invalid contract ");
-      taker_sig = sig
-    }
-
-    return {
-      maker_pub: maker_pub,
-      taker_pub: taker_pub,
-      escrow_pub: escrow_pub,
-      maker_sats: maker_sats,
-      taker_sats: taker_sats,
-      escrow_sats: escrow_sats,
-      contract_text: contract_text,
-      maker_sig: maker_sig,
-      taker_sig: taker_sig,
-      contract_hash: contract_hash
-    };
   }
 
   async createContractEvent(params: MakerContractParams): Promise<Event> {
@@ -269,9 +210,7 @@ export class NostrEscrow {
       sha256(utf8Encoder.encode(subcontract_serial))
     );
 
-    const tweaked_priv = this.tweakPriv(maker_priv, subcontract_hash)
-    console.log("tweaked priv", tweaked_priv, "shared", secp256k1.getSharedSecret(tweaked_priv, "02" + params.taker_pub))
-    console.log("would have been", secp256k1.getSharedSecret(maker_priv, "02" + params.taker_pub))
+    const tweaked_pub = this.tweakPub(params.taker_pub, subcontract_hash)
 
     const ev = {
       kind: 3333,
@@ -280,8 +219,8 @@ export class NostrEscrow {
         ["hash", subcontract_hash],
       ],
       content: await nip04.encrypt(
-        tweaked_priv,
-        params.taker_pub,
+        maker_priv,
+        tweaked_pub,
         subcontract_serial
       ),
     };
@@ -289,13 +228,10 @@ export class NostrEscrow {
     return this.signEvent(ev, maker_pub, maker_priv);
   }
 
-  private tweakPriv(maker_priv: string, subcontract_hash: string) {
-    // todo: use ephemeral
-    console.log("tweaking with " + subcontract_hash)
-    const maker_bn = BigInt("0x"+maker_priv)
-    const hash_bn = BigInt("0x"+subcontract_hash)
-    const mul_bn = secp256k1.CURVE.Fp.mul(maker_bn, hash_bn)
-    return mul_bn.toString(16)
+  private tweakPub(pub: string, hex: string) {
+    const pt = secp256k1.ProjectivePoint.fromHex("02" + pub)
+    const hash_pt = secp256k1.ProjectivePoint.fromHex("0x" + hex)
+    return pt.add(hash_pt).toHex().slice(1, 33)
   }
 
   private signEvent(ev: { kind: number; tags: string[][]; content: string; }, pub: string, priv: string) : Event {
