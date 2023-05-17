@@ -1,8 +1,9 @@
 import { assert } from 'console';
-import {SimplePool, nip04, nip19, UnsignedEvent, Event, getPublicKey, getEventHash, signEvent} from 'nostr-tools'
+import {SimplePool, nip04, nip19, Event, getPublicKey, getEventHash, signEvent} from 'nostr-tools'
 import {sha256} from '@noble/hashes/sha256'
-import { utf8Encoder } from 'nostr-tools/lib/utils';
 import { bytesToHex } from '@noble/hashes/utils';
+
+const utf8Encoder = new TextEncoder()
 
 
 interface SubsetContract {
@@ -32,7 +33,7 @@ interface FullContract extends SubsetContract{
   taker_sig?: string
 }
 
-let DEFAULT_RELAYS =  [
+const DEFAULT_RELAYS =  [
   'wss://relay.damus.io/',
   'wss://relay.nostr.bg/',
   'wss://nostr.fmt.wiz.biz/',
@@ -64,7 +65,7 @@ export class NostrEscrow {
   ): Promise<FullContract> {
     const { type, data } = nip19.decode(nsec);
     assert(type == "nsec");
-    let priv = data as string;
+    const priv = data as string;
     const sub = await this.pool.get(this.relays, { ids: [event_id] });
 
     if (!sub) throw Error("unknown contract");
@@ -110,9 +111,10 @@ export class NostrEscrow {
     if (plain_reply) {
       const [
         ver,
-        taker_sig,
+        sig,
       ] = JSON.parse(plain_reply);
       assert(ver == 0);
+      taker_sig = sig
     }
 
     return {
@@ -148,8 +150,8 @@ export class NostrEscrow {
   }
 
   async createAcceptEvent(params: TakerAcceptParams): Promise<Event> {
-    var [taker_priv, taker_pub] = this.getPrivPub(params.taker_nsec);
-    let ev = {
+    const [taker_priv, taker_pub] = this.getPrivPub(params.taker_nsec);
+    const ev = {
       kind: 3333,
       tags: [
         ["e", params.event_id],
@@ -164,13 +166,13 @@ export class NostrEscrow {
   }
 
   async createContractEvent(params: MakerContractParams): Promise<Event> {
-    var [maker_priv, maker_pub] = this.getPrivPub(params.maker_nsec);
+    const [maker_priv, maker_pub] = this.getPrivPub(params.maker_nsec);
 
     const subcontract: SubsetContract = {
       escrow_pub: params.escrow_pub,
       maker_sats: params.maker_sats,
-      taker_sats: params.maker_sats,
-      escrow_sats: params.maker_sats,
+      taker_sats: params.taker_sats,
+      escrow_sats: params.escrow_sats,
       contract_text: params.contract_text,
       maker_sig: params.maker_sig,
     };
@@ -188,7 +190,7 @@ export class NostrEscrow {
       sha256(utf8Encoder.encode(subcontract_serial))
     );
 
-    let ev = {
+    const ev = {
       kind: 3333,
       tags: [
         ["p", params.taker_pub],
@@ -219,7 +221,7 @@ export class NostrEscrow {
     const { type, data } = nip19.decode(nsec);
     assert(type == "nsec");
     const priv = data as string;
-    let pub = getPublicKey(priv);
+    const pub = getPublicKey(priv);
     return [priv, pub ];
   }
 }
