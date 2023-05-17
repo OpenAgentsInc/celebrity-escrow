@@ -41,6 +41,11 @@
       color: #fff;
     }
 
+    input,
+    textarea {
+      color: #000 !important;
+    }
+
     html {
       max-width: 70ch;
       padding: 3rem 1rem;
@@ -156,8 +161,13 @@
 
 <body class="bg-black">
   <div class="container mx-auto px-4">
-    <h1 class="text-2xl mb-4">Welcome to Celebrity Escrow</h1>
-    <div class="maker_form">
+    <h1 class="text-2xl mb-4">⭐ Celebrity Escrow ⭐</h1>
+    <h2 class="text-gray-400 my-6">Elective P2P escrow with Bitcoin and Nostr</h2>
+    <h2 class="text-gray-400 text-xl my-6">Code ➡️ <a href="https://github.com/ArcadeLabsInc/celebrity-escrow"
+        target="_blank" class="underline text-md">https://github.com/ArcadeLabsInc/celebrity-escrow</a></h2>
+    <h2 class="text-gray-400 text-xl my-6">Spec ➡️ <a href="https://github.com/ArcadeLabsInc/celebrity-escrow/wiki/Spec"
+        target="_blank" class="underline text-md">https://github.com/ArcadeLabsInc/celebrity-escrow/wiki/Spec</a></h2>
+    <div class="maker_form mt-12">
       <p>Enter your nsec</p>
       <p><input class="mb-6 asec rounded-md px-3 py-2"></p>
       <p>Enter a bitcoin address where the money should go if you win</p>
@@ -174,8 +184,8 @@
       <p><input class="mb-6 efee rounded-md px-3 py-2"></p>
       <p>Enter a description of the contract</p>
       <p><textarea class="text rounded-md px-3 py-2"></textarea></p>
-      <p><button class="my-4 create px-4 py-2 rounded-md bg-blue-500 text-white">Create a contract</button></p>
-      <p><button class="taker_won px-4 py-2 rounded-md bg-blue-400 text-white">Taker won</button></p>
+      <p><button class="my-4 create px-4 py-2 rounded-md bg-orange-500 text-white">Create a contract</button></p>
+      <p><button class="taker_won px-4 py-2 rounded-md bg-orange-500 text-white">Taker won</button></p>
     </div>
     <div class="taker_form">
       <p>Enter your nsec</p>
