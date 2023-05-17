@@ -86,6 +86,7 @@ export class NostrEscrow {
     let plain: string;
     let plain_reply: string| null = null;
     if (role == "taker") {
+      console.log(priv, maker_pub, sub.content)
       plain = await nip04.decrypt(priv, maker_pub, JSON.stringify(sub.content));
       if (taker_reply)
         plain_reply = await nip04.decrypt(priv, maker_pub, JSON.stringify(taker_reply.content));

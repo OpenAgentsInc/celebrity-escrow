@@ -1,8 +1,8 @@
 
 {
   "compilerOptions": {
-    "module": "commonjs",
     "allowJs": true,
+    "module": "umd",
     "esModuleInterop": true,
     "target": "esnext",
     "lib": ["esnext", "dom"],
