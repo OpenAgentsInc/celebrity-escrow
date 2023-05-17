@@ -8377,20 +8377,26 @@ zoo`.split('\n');
             if (!taker_tag)
                 throw Error("taker pub unknown");
             const taker_pub = taker_tag[1];
+            const contract_tag = sub.tags.find((el) => {
+                return el[0] == "hash";
+            });
+            if (!contract_tag)
+                throw Error("contract hash unknown");
+            const contract_hash = contract_tag[1];
             const maker_pub = sub.pubkey;
             const taker_reply = await this.pool.get(this.relays, { "#e": [event_id], authors: [taker_pub] });
+            const tweaked_priv = this.tweakPriv(priv, contract_hash);
             let plain;
             let plain_reply = null;
             if (role == "taker") {
-                console.log("TAKER!!!!", priv, maker_pub, sub.content);
-                plain = await nip04_exports.decrypt(priv, maker_pub, sub.content);
+                plain = await nip04_exports.decrypt(tweaked_priv, maker_pub, sub.content);
                 if (taker_reply)
-                    plain_reply = await nip04_exports.decrypt(priv, maker_pub, taker_reply.content);
+                    plain_reply = await nip04_exports.decrypt(tweaked_priv, maker_pub, taker_reply.content);
             }
             else if (role == "maker") {
-                plain = await nip04_exports.decrypt(priv, taker_pub, sub.content);
+                plain = await nip04_exports.decrypt(tweaked_priv, taker_pub, sub.content);
                 if (taker_reply)
-                    plain_reply = await nip04_exports.decrypt(priv, taker_pub, taker_reply.content);
+                    plain_reply = await nip04_exports.decrypt(tweaked_priv, taker_pub, taker_reply.content);
             }
             else {
                 throw Error("only maker or taker can view the original contract");
@@ -8412,7 +8418,8 @@ zoo`.split('\n');
                 escrow_sats: escrow_sats,
                 contract_text: contract_text,
                 maker_sig: maker_sig,
-                taker_sig: taker_sig
+                taker_sig: taker_sig,
+                contract_hash: contract_hash
             };
         }
         async publishAndWait(ev) {
@@ -8433,14 +8440,56 @@ zoo`.split('\n');
         }
         async createAcceptEvent(params) {
             const [taker_priv, taker_pub] = this.getPrivPub(params.taker_nsec);
+            const tweaked_priv = this.tweakPriv(taker_priv, params.contract_hash);
             const ev = {
                 kind: 3333,
                 tags: [
                     ["e", params.event_id],
                 ],
-                content: await nip04_exports.encrypt(taker_priv, params.maker_pub, JSON.stringify([0, params.taker_sig])),
+                content: await nip04_exports.encrypt(tweaked_priv, params.maker_pub, JSON.stringify([0, params.taker_sig])),
             };
             return this.signEvent(ev, taker_pub, taker_priv);
+        }
+        async getEphemeralKey(role, maker_nsec, escrow_pub, event_id, contract_hash) {
+            const [priv, pub] = this.getPrivPub(maker_nsec);
+            const tweaked_priv = this.tweakPriv(priv, contract_hash);
+            return tweaked_priv;
+        }
+        async getContractAsEscrow(nsec, ephemeral_key, event_id, contract_hash) {
+            const sub = await this.pool.get(this.relays, { ids: [event_id] });
+            const taker_tag = sub.tags.find((el) => {
+                return el[0] == "p";
+            });
+            if (!taker_tag)
+                throw Error("taker pub unknown");
+            const taker_pub = taker_tag[1];
+            const maker_pub = sub.pubkey;
+            const taker_reply = await this.pool.get(this.relays, { "#e": [event_id], authors: [taker_pub] });
+            const plain = await nip04_exports.decrypt(ephemeral_key, taker_pub, sub.content);
+            let plain_reply;
+            if (taker_reply) {
+                plain_reply = await nip04_exports.decrypt(ephemeral_key, taker_pub, taker_reply.content);
+            }
+            const [ver, escrow_pub, maker_sats, taker_sats, escrow_sats, contract_text, maker_sig,] = JSON.parse(plain);
+            assert(ver == 0, "invalid contract ");
+            let taker_sig = null;
+            if (plain_reply) {
+                const [ver, sig,] = JSON.parse(plain_reply);
+                assert(ver == 0, "invalid contract ");
+                taker_sig = sig;
+            }
+            return {
+                maker_pub: maker_pub,
+                taker_pub: taker_pub,
+                escrow_pub: escrow_pub,
+                maker_sats: maker_sats,
+                taker_sats: taker_sats,
+                escrow_sats: escrow_sats,
+                contract_text: contract_text,
+                maker_sig: maker_sig,
+                taker_sig: taker_sig,
+                contract_hash: contract_hash
+            };
         }
         async createContractEvent(params) {
             const [maker_priv, maker_pub] = this.getPrivPub(params.maker_nsec);
@@ -8462,15 +8511,20 @@ zoo`.split('\n');
                 subcontract.maker_sig,
             ]);
             const subcontract_hash = bytesToHex(sha256(utf8Encoder.encode(subcontract_serial)));
+            const tweaked_priv = this.tweakPriv(maker_priv, subcontract_hash);
             const ev = {
                 kind: 3333,
                 tags: [
                     ["p", params.taker_pub],
                     ["hash", subcontract_hash],
                 ],
-                content: await nip04_exports.encrypt(maker_priv, params.taker_pub, subcontract_serial),
+                content: await nip04_exports.encrypt(tweaked_priv, params.taker_pub, subcontract_serial),
             };
             return this.signEvent(ev, maker_pub, maker_priv);
+        }
+        tweakPriv(maker_priv, subcontract_hash) {
+            // todo: use ephemeral
+            return maker_priv;
         }
         signEvent(ev, pub, priv) {
             const created_at = Math.floor(Date.now() / 1000);
