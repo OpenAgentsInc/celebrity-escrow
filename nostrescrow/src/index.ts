@@ -89,11 +89,11 @@ export class NostrEscrow {
       console.log(priv, maker_pub, sub.content)
       plain = await nip04.decrypt(priv, maker_pub, JSON.stringify(sub.content));
       if (taker_reply)
-        plain_reply = await nip04.decrypt(priv, maker_pub, JSON.stringify(taker_reply.content));
+        plain_reply = await nip04.decrypt(priv, maker_pub, taker_reply.content);
     } else if (role == "maker") {
-      plain = await nip04.decrypt(priv, taker_pub, JSON.stringify(sub.content));
+      plain = await nip04.decrypt(priv, taker_pub, sub.content);
       if (taker_reply)
-        plain_reply = await nip04.decrypt(priv, taker_pub, JSON.stringify(taker_reply.content));
+        plain_reply = await nip04.decrypt(priv, taker_pub, taker_reply.content);
     } else {
       throw Error("only maker or taker can view the original contract");
     }
