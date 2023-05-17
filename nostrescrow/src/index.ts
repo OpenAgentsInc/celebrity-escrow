@@ -94,6 +94,8 @@ export class NostrEscrow {
 
     const tweaked_priv = this.tweakPriv(priv, contract_hash)
 
+    console.log("tweaked priv", tweaked_priv)
+
     let plain: string;
     let plain_reply: string| null = null;
     if (role == "taker") {
@@ -267,6 +269,7 @@ export class NostrEscrow {
     );
 
     const tweaked_priv = this.tweakPriv(maker_priv, subcontract_hash)
+    console.log("tweaked priv", tweaked_priv)
 
     const ev = {
       kind: 3333,
@@ -286,7 +289,10 @@ export class NostrEscrow {
 
   private tweakPriv(maker_priv: string, subcontract_hash: string) {
     // todo: use ephemeral
-    return maker_priv
+    const maker_bn = BigInt("0x"+maker_priv)
+    const hash_bn = BigInt("0x"+subcontract_hash)
+    const mul_bn = secp256k1.CURVE.Fp.mul(maker_bn, hash_bn)
+    return mul_bn.toString(16)
   }
 
   private signEvent(ev: { kind: number; tags: string[][]; content: string; }, pub: string, priv: string) : Event {
