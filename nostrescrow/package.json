@@ -4,9 +4,12 @@
   "main": "lib/index.js",
   "source": "src/index.ts",
   "targets": {
-      "main": {
+      "modern": {
           "includeNodeModules": true,
-          "outputFormat": "commonjs"
+          "outputFormat": "global",
+          "engines": {
+            "browsers": "Chrome 80"
+          }
       }
   },
   "types": "lib/index.d.ts",
