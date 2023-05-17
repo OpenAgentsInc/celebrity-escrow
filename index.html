@@ -8,7 +8,9 @@
         <script src="https://bundle.run/buffer@6.0.3"></script>
         <script src="https://bundle.run/bech32@2.0.0"></script>
         <script>var Buffer = buffer.Buffer;</script>
+        <script src="index.js"></script>
         <script>
+            var nescrow = new NostrEscrow.NostrEscrow()
             function pubkeyToNpub( hex ) {
                 return bech32.bech32.encode( "npub", bech32.bech32.toWords( buffer.Buffer.from( hex, "hex" ) ) );
             }
@@ -50,7 +52,7 @@
             textarea {
                 height: auto;
             }
-            .taker_form {
+            .taker_form, .escrow_form {
                 display: none;
             }
             @media screen and (max-width: 600px) {
@@ -67,7 +69,8 @@
         <script>
             var createPreContract = async ( json ) => {
                 var pubkey = "abababababababababababababababababababababababababababababababab";
-                var script  = [ pubkeyFromNpub( json[ "maker_pub" ] ), 'OP_CHECKSIG', 'OP_SWAP', pubkeyFromNpub( json[ "taker_pub" ] ), 'OP_CHECKSIG', 'OP_ADD', 'OP_SWAP', pubkeyFromNpub( json[ "escrow_pub" ] ), 'OP_CHECKSIG', 'OP_ADD', 'OP_1', 'OP_GREATERTHAN' ];
+                var script  = [ pubkeyFromNpub( json[ "maker_pub" ] ), 'OP_CHECKSIG', 'OP_SWAP', json[ "taker_pub" ], 'OP_CHECKSIG', 'OP_ADD', 'OP_SWAP', json[ "escrow_pub" ], 'OP_CHECKSIG', 'OP_ADD', 'OP_1', 'OP_GREATERTHAN' ];
+                // console.log( script );
                 // For tapscript spends, we need to convert this script into a 'tapleaf'.
                 var tapleaf = tapscript.Tap.encodeScript(script)
                 // Generate a tapkey that includes our leaf script. Also, create a merlke proof 
@@ -75,51 +78,53 @@
                 var [ tpubkey, cblock ] = tapscript.Tap.getPubKey(pubkey, { target: tapleaf })
                 // A taproot address is simply the tweaked public key, encoded in bech32 format.
                 var address = tapscript.Address.p2tr.fromPubKey(tpubkey, 'regtest')
-                console.log( "address:", address );
-                var txid = prompt( "Please enter the txid of your deposit" );
-                var vout = prompt( "And its vout" );
-                var txid2 = prompt( "Please enter the txid of the second deposit" );
-                var vout2 = prompt( "And the second vout" );
-                vout2 = Number( vout2 );
-                var txdata = tapscript.Tx.create({
-                  vin  : [{
-                    txid: txid,
-                    vout: vout,
-                    prevout: {
-                      value: json[ "maker_sats" ],
-                      scriptPubKey: [ 'OP_1', tpubkey ]
-                    },
-                  },{
-                    txid: txid2,
-                    vout: vout2,
-                    prevout: {
-                      value: json[ "taker_sats" ],
-                      scriptPubKey: [ 'OP_1', tpubkey ]
-                    },
-                  }],
-                  vout : [{
-                    value: json[ "maker_sats" ] + json[ "taker_sats" ] - 500,
-                    // bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y
-                    scriptPubKey: tapscript.Address.toScriptPubKey(json[ "maker_address" ])
-                  }]
-                });
-                console.log( "txdata:", txdata );
-                var sig = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 0, { extension: tapleaf });
+                // console.log( "address:", address );
+                // var txid = prompt( "Please enter the txid of your deposit" );
+                // var vout = prompt( "And its vout" );
+                // var txid2 = prompt( "Please enter the txid of the second deposit" );
+                // var vout2 = prompt( "And the second vout" );
+                // vout2 = Number( vout2 );
+                // var txdata = tapscript.Tx.create({
+                //   vin  : [{
+                //     txid: txid,
+                //     vout: vout,
+                //     prevout: {
+                //       value: json[ "maker_sats" ],
+                //       scriptPubKey: [ 'OP_1', tpubkey ]
+                //     },
+                //   },{
+                //     txid: txid2,
+                //     vout: vout2,
+                //     prevout: {
+                //       value: json[ "taker_sats" ],
+                //       scriptPubKey: [ 'OP_1', tpubkey ]
+                //     },
+                //   }],
+                //   vout : [{
+                //     value: json[ "maker_sats" ] + json[ "taker_sats" ] - 500,
+                //     // bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y
+                //     scriptPubKey: tapscript.Address.toScriptPubKey(json[ "maker_address" ])
+                //   }]
+                // });
+                // console.log( "txdata:", txdata );
+                // var sig = tapscript.Signer.taproot.sign( privkeyFromNsec( json[ "maker_sec" ] ), txdata, 0, { extension: tapleaf });
                 //first sig is maker's
                 //second sig is taker's
                 //third sig is escrow's
-                console.log( "sig:", sig.hex );
-                json[ "maker_sig" ] = sig.hex;
-                var params = {
-                    maker_nsec: json.maker_sec,
-                    escrow_pub: json.escrow_pub,
-                    maker_sats: json.maker_sats,
-                    taker_sats: json.taker_sats,
-                    escrow_sats: json.escrow_sats,
-                    contract_text: json.contract_text,
-                    maker_sig: sig.hex
-                }
-                createContract( params );
+                // var params = {
+                //     maker_nsec: json.maker_sec,
+                //     escrow_pub: json.escrow_pub,
+                //     maker_sats: json.maker_sats,
+                //     taker_sats: json.taker_sats,
+                //     escrow_sats: json.escrow_sats,
+                //     contract_text: json.contract_text,
+                //     maker_sig: ""
+                // }
+                var event = await nescrow.createContract( json );
+                var port = window.location.port ? `:${window.location.port}`:"";
+                var url = window.location.protocol + "//" + window.location.hostname + port + window.location.pathname + `?contract=${event.id}&role=taker`;
+                console.log( url );
+                return url;
             }
         </script>
     </head>
@@ -187,11 +192,14 @@
         </div>
         <script>
             $( '.create' ).onclick = () => {
-                var maker_sec = ( $( '.asec' ).value );
-                var inter_pub = nobleSecp256k1.getPublicKey( privkeyFromNsec( maker_sec ), true ).substring( 2 );
+                var maker_nsec = ( $( '.asec' ).value );
+                var inter_pub = nobleSecp256k1.getPublicKey( privkeyFromNsec( maker_nsec ), true ).substring( 2 );
                 var maker_pub = pubkeyToNpub( inter_pub );
-                var taker_pub = ( $( '.bpub' ).value );
-                var escrow_pub = ( $( '.epub' ).value );
+                console.log( 0 );
+                var taker_pub = pubkeyFromNpub( $( '.bpub' ).value );
+                console.log( 1 );
+                var escrow_pub = pubkeyFromNpub( $( '.epub' ).value );
+                console.log( 2 );
                 var maker_sats = ( $( '.abet' ).value );
                 maker_sats = Number( maker_sats );
                 var taker_sats = ( $( '.bbet' ).value );
@@ -202,7 +210,7 @@
                 var maker_address = ( $( '.maker_address' ).value );
                 var maker_sig = "";
                 var json = {
-                    maker_sec,
+                    maker_nsec,
                     maker_pub,
                     taker_pub,
                     escrow_pub,
@@ -217,23 +225,30 @@
                 createPreContract( json );
             }
             if ( $_GET[ "role" ] == "taker" ) {
-                $( '.maker_form' ).style.display = "none";
-                $( '.taker_form' ).style.display = "block";
-                var json = { maker_sec: "nsec1hd5sm8cjvnttdde9d2pvjv42vj9svcrar728fy8h6l8hwmlvhmkqsvm95u", maker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", taker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", escrow_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", maker_sats: 5000, taker_sats: 5000, escrow_sats: 1000, contract_text: "test8", maker_address: "bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y" }
-                sessionStorage[ "json" ] = JSON.stringify( json );
-                $$( '.epub' )[ 1 ].value = json[ "escrow_pub" ];
-                $$( '.abet' )[ 1 ].value = json[ "maker_sats" ];
-                $$( '.bbet' )[ 1 ].value = json[ "taker_sats" ];
-                $$( '.efee' )[ 1 ].value = json[ "escrow_sats" ];
-                $$( '.text' )[ 1 ].value = json[ "contract_text" ];
+                var takertime = async () => {
+                    var interpriv = prompt( "Please enter your nsec" );
+                    privKey = privkeyFromNsec( interpriv );
+                    pubKey = nobleSecp256k1.getPublicKey( privKey, true ).substring( 2 );
+                    $( '.maker_form' ).style.display = "none";
+                    $( '.taker_form' ).style.display = "block";
+                    var json = await nescrow.getContract( role="taker", nsec=interpriv, $_GET[ "contract" ] );
+                    sessionStorage[ "json" ] = JSON.stringify( json );
+                    sessionStorage[ "nsec" ] = interpriv;
+                    // var json = { maker_nsec: "nsec1hd5sm8cjvnttdde9d2pvjv42vj9svcrar728fy8h6l8hwmlvhmkqsvm95u", maker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", taker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", escrow_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", maker_sats: 5000, taker_sats: 5000, escrow_sats: 1000, contract_text: "test8", maker_address: "bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y" }
+                    $$( '.epub' )[ 1 ].value = json[ "escrow_pub" ];
+                    $$( '.abet' )[ 1 ].value = json[ "maker_sats" ];
+                    $$( '.bbet' )[ 1 ].value = json[ "taker_sats" ];
+                    $$( '.efee' )[ 1 ].value = json[ "escrow_sats" ];
+                    $$( '.text' )[ 1 ].value = json[ "contract_text" ];
+                }
+                takertime();
             }
-            $( '.approve' ).onclick = () => {
+            $( '.approve' ).onclick = async () => {
                 //todo: check if the maker deposited yet. If they did not, abort
-                var taker_address = prompt( 'Enter a bitcoin address where the money should go if you win' );
-                var taker_sec = prompt( 'Enter your nostr secret key' );
                 var pubkey = "abababababababababababababababababababababababababababababababab";
                 var json = JSON.parse( sessionStorage[ "json" ] );
-                var script  = [ pubkeyFromNpub( json[ "maker_pub" ] ), 'OP_CHECKSIG', pubkeyFromNpub( json[ "taker_pub" ] ), 'OP_CHECKSIGADD', pubkeyFromNpub( json[ "escrow_pub" ] ), 'OP_CHECKSIGADD', 'OP_1', 'OP_GREATERTHAN' ];
+                var script  = [ json[ "maker_pub" ], 'OP_CHECKSIG', 'OP_SWAP', json[ "taker_pub" ], 'OP_CHECKSIG', 'OP_ADD', 'OP_SWAP', json[ "escrow_pub" ], 'OP_CHECKSIG', 'OP_ADD', 'OP_1', 'OP_GREATERTHAN' ];
+                // console.log( script );
                 // For tapscript spends, we need to convert this script into a 'tapleaf'.
                 var tapleaf = tapscript.Tap.encodeScript(script)
                 // Generate a tapkey that includes our leaf script. Also, create a merlke proof 
@@ -241,12 +256,13 @@
                 var [ tpubkey, cblock ] = tapscript.Tap.getPubKey(pubkey, { target: tapleaf })
                 // A taproot address is simply the tweaked public key, encoded in bech32 format.
                 var address = tapscript.Address.p2tr.fromPubKey(tpubkey, 'regtest')
-                console.log( "address:", address );
+                // console.log( address );
+                var taker_address = prompt( 'Enter a bitcoin address where the money should go if you win' );
                 var txid = prompt( "Please enter the txid of your deposit" );
                 var vout = prompt( "And its vout" );
                 vout = Number( vout );
-                var txid2 = prompt( "Please enter the txid of the second deposit" );
-                var vout2 = prompt( "And the second vout" );
+                var txid2 = prompt( "Please enter the txid of Alice's deposit" );
+                var vout2 = prompt( "And Alice's vout" );
                 vout2 = Number( vout2 );
                 var txdata = tapscript.Tx.create({
                   vin  : [{
@@ -260,7 +276,7 @@
                     txid: txid2,
                     vout: vout2,
                     prevout: {
-                      value: json[ "taker_sats" ],
+                      value: json[ "maker_sats" ],
                       scriptPubKey: [ 'OP_1', tpubkey ]
                     },
                   }],
@@ -271,14 +287,17 @@
                   }]
                 });
                 console.log( "txdata:", txdata );
-                var sig = tapscript.Signer.taproot.sign( privkeyFromNsec( taker_sec ), txdata, 0, { extension: tapleaf });
-                var sig2 = tapscript.Signer.taproot.sign( privkeyFromNsec( taker_sec ), txdata, 1, { extension: tapleaf });
-                console.log( "taker address:", taker_address, "taker sig:", sig.hex );
+                var taker_nsec = sessionStorage[ "nsec" ];
+                var sig = tapscript.Signer.taproot.sign( privkeyFromNsec( taker_nsec ), txdata, 0, { extension: tapleaf });
+                var sig2 = tapscript.Signer.taproot.sign( privkeyFromNsec( taker_nsec ), txdata, 1, { extension: tapleaf });
+                console.log( "taker address:", taker_address, "taker sig:", [sig.hex,sig2.hex] );
+                var event = await nescrow.acceptContract( {taker_nsec, maker_pub: json[ "maker_pub" ], event_id: $_GET[ "contract" ], taker_sig: [sig.hex,sig2.hex]} );
+                console.log( "event:", event );
             }
             if ( $_GET[ "role" ] == "escrow" ) {
                 $( '.maker_form' ).style.display = "none";
                 $( '.escrow_form' ).style.display = "block";
-                var json = { maker_sec: "nsec1hd5sm8cjvnttdde9d2pvjv42vj9svcrar728fy8h6l8hwmlvhmkqsvm95u", maker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", taker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", escrow_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", maker_sats: 5000, taker_sats: 5000, escrow_sats: 1000, contract_text: "test8", maker_address: "bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y" }
+                var json = { maker_nsec: "nsec1hd5sm8cjvnttdde9d2pvjv42vj9svcrar728fy8h6l8hwmlvhmkqsvm95u", maker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", taker_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", escrow_pub: "npub1yxp7j36cfqws7yj0hkfu2mx25308u4zua6ud22zglxp98ayhh96s8c399s", maker_sats: 5000, taker_sats: 5000, escrow_sats: 1000, contract_text: "test8", maker_address: "bcrt1q6zpf4gefu4ckuud3pjch563nm7x27u4ruahz3y" }
                 sessionStorage[ "json" ] = JSON.stringify( json );
                 $( '.maker_profile .profile_info' ).innerText = "maker profile info";
                 $( '.taker_profile .profile_info' ).innerText = "taker profile info";
