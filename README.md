@@ -29,3 +29,7 @@ Celebrity Escrow is a decentralized escrow application built on Bitcoin. It allo
 2. Open `index.html` in your browser to access the app
 
 3. There is no step 3
+
+## Demo pic
+
+![pic](https://github.com/ArcadeLabsInc/celebrity-escrow/assets/14167547/595d78d9-6a3d-4b67-a63a-118e86d0076e)
