@@ -1,24 +1,37 @@
-import {generatePrivateKey, getPublicKey, nip19} from "nostr-tools"
+import {Relay, generatePrivateKey, getPublicKey, nip19, relayInit} from "nostr-tools"
 
+// websocket and crypto polyfills
 Object.assign(global, { WebSocket: require('ws') });
 Object.assign(global, { crypto: require('crypto') });
 
-import {NostrEscrow} from "../src"
-import exp from "constants";
+import NostrEscrow from "../src"
+import NostrMini from 'nostrmini'
 
 const maker_priv = generatePrivateKey();
 const maker_nsec = nip19.nsecEncode(maker_priv);
 const taker_priv = generatePrivateKey();
 const taker_nsec = nip19.nsecEncode(taker_priv);
 const taker_pub = getPublicKey(taker_priv)
-const escrow_priv = generatePrivateKey();
-const escrow_nsec = nip19.nsecEncode(escrow_priv);
-const escrow_pub = getPublicKey(escrow_priv)
+
+let nm!: NostrMini;
+let url!: string
+let n!: NostrEscrow
+
+beforeAll(async () => {
+  nm = new NostrMini();
+  nm.listen(0);
+  const port = nm.address().port;
+  url = `ws://127.0.0.1:${port}`;
+  n = new NostrEscrow();
+  n.setRelays([url])
+});
+
+afterAll(async () => {
+    n?.close()
+    nm.close();
+});
 
 describe("NostrEscrow", () => {
-    const n = new NostrEscrow()
-
-    n.setRelays(["wss://relay.taxi"])
     it("can create a contract", async () => {
         const event = await n.createContract({
           maker_nsec: maker_nsec,
@@ -43,6 +56,7 @@ describe("NostrEscrow", () => {
         })
         expect(accept_event).toBeTruthy()
         const contract3 = await n.getContract("maker", maker_nsec, event.id)
+        expect(contract2.shared_secret).toEqual(contract3.shared_secret)
         expect(contract3.contract_text).toBe("con")
         expect(contract3.taker_sig).toBeTruthy()
         const contract4 = await n.getContract("escrow", contract2.shared_secret, event.id)

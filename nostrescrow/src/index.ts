@@ -51,7 +51,7 @@ const DEFAULT_RELAYS =  [
   'wss://nos.lol/'
 ]
 
-export class NostrEscrow {
+class NostrEscrow {
   relays: string[];
   pool: SimplePool;
   constructor() {
@@ -73,9 +73,12 @@ export class NostrEscrow {
     nsec: string,
     event_id: string
   ): Promise<FullContract> {
-    console.log("getcontract", role)
-    const { type, data } = nip19.decode(nsec);
-    assert(type == "nsec", "invalid nsec");
+    const is_escrow = role == "escrow"
+
+    const { type, data } = !is_escrow ? nip19.decode(nsec) : {type: null, data: nsec}
+
+    assert(is_escrow || type == "nsec", "invalid nsec");
+
     const priv = data as string;
     const sub = await this.pool.get(this.relays, { ids: [event_id] });
 
@@ -96,7 +99,6 @@ export class NostrEscrow {
       authors: [taker_pub],
     });
 
-    console.log("decryptAs", role)
     const { shared_secret, plain, plain_reply } = await this.decryptAs(
       role,
       priv,
@@ -176,39 +178,37 @@ export class NostrEscrow {
     let shared_secret, plain, plain_reply;
     if (role == "taker") {
       const tweaked_pub = this.tweakPub(maker_pub, contract_hash);
-      shared_secret = base64.encode(
-        secp256k1.getSharedSecret(priv, "02" + tweaked_pub).slice(1, 33)
-      );
-      plain = await nip04.decrypt(priv, tweaked_pub, content);
-      if (taker_reply)
-        plain_reply = await nip04.decrypt(
-          priv,
-          tweaked_pub,
-          taker_reply
-        );
+      await decryptWith(tweaked_pub);
     } else if (role == "maker") {
       const tweaked_pub = this.tweakPub(taker_pub, contract_hash);
-      shared_secret = base64.encode(
-        secp256k1.getSharedSecret(priv, "02" + tweaked_pub).slice(1, 33)
-      );
-      plain = await nip04.decrypt(priv, tweaked_pub, content);
-      if (taker_reply)
-        plain_reply = await nip04.decrypt(
-          priv,
-          tweaked_pub,
-          taker_reply
-        );
+      await decryptWith(tweaked_pub);
     } else {
       shared_secret = priv;
       plain = await this.decryptWithSharedSecret(shared_secret, content);
+      plain_reply = await this.decryptWithSharedSecret(shared_secret, taker_reply);
     }
     return { shared_secret, plain, plain_reply };
+
+    async function decryptWith(tweaked_pub: string) {
+      shared_secret = base64.encode(
+        secp256k1.getSharedSecret(priv, "02" + tweaked_pub).slice(1, 33)
+      );
+      plain = await nip04.decrypt(priv, tweaked_pub, content);
+      if (taker_reply)
+        plain_reply = await nip04.decrypt(
+          priv,
+          tweaked_pub,
+          taker_reply
+        );
+    }
   }
 
   async decryptWithSharedSecret(
     shared_secret: string,
     content: string
   ): Promise<string> {
+    if (!content) return ""
+
     const bytes_key = base64.decode(shared_secret);
 
     const cryptoKey = await crypto.subtle.importKey(
@@ -336,6 +336,11 @@ export class NostrEscrow {
     const pub = getPublicKey(priv);
     return [priv, pub];
   }
+
+  close() {
+    this.pool.close(this.relays)
+  }
 }
 
 
+export default NostrEscrow
