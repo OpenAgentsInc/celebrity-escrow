@@ -16,7 +16,7 @@
   <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    var nescrow = new NostrEscrow.NostrEscrow()
+    var nescrow = new NostrEscrow()
 
     function pubkeyToNpub(hex) {
       return bech32.bech32.encode("npub", bech32.bech32.toWords(buffer.Buffer.from(hex, "hex")));
@@ -152,8 +152,8 @@
       //     maker_sig: ""
       // }
       var event = await nescrow.createContract(json);
+      var ekey = await nescrow.getContractSecretFromEvent(json.maker_sec, json.taker_pub, event)
       var port = window.location.port ? `:${window.location.port}` : "";
-      var ekey = await nescrow.getEphemeralKey("maker", json.maker_nsec, json.escrow_pub, $_GET["contract"], "");
       var url = window.location.protocol + "//" + window.location.hostname + port + window.location.pathname +
         `?contract=${event.id}&ekey=${ekey}&role=taker`;
       console.log(url);
