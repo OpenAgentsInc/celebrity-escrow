@@ -4,7 +4,7 @@ Celebrity Escrow is a decentralized escrow application built on Bitcoin. It allo
 
 ## Inspiration
 
-Smart Contracts Unchained: https://zmnscpxj.github.io/bitcoin/unchained.html
+[Smart Contracts Unchained](https://zmnscpxj.github.io/bitcoin/unchained.html)
 
 ## How it works
 
