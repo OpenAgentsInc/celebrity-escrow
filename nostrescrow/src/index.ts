@@ -73,6 +73,7 @@ export class NostrEscrow {
     nsec: string,
     event_id: string
   ): Promise<FullContract> {
+    console.log("getcontract", role)
     const { type, data } = nip19.decode(nsec);
     assert(type == "nsec", "invalid nsec");
     const priv = data as string;
@@ -95,15 +96,15 @@ export class NostrEscrow {
       authors: [taker_pub],
     });
 
+    console.log("decryptAs", role)
     const { shared_secret, plain, plain_reply } = await this.decryptAs(
       role,
-      maker_pub,
-      contract_hash,
       priv,
-      sub.content,
-      taker_reply,
+      maker_pub,
       taker_pub,
-      nsec
+      contract_hash,
+      sub.content,
+      taker_reply?.content,
     );
 
     const [
@@ -165,13 +166,12 @@ export class NostrEscrow {
 
   async decryptAs(
     role: string,
-    maker_pub: string,
-    contract_hash: string,
     priv: string,
-    content: string,
-    taker_reply: Event,
+    maker_pub: string,
     taker_pub: string,
-    nsec: string
+    contract_hash: string,
+    content: string,
+    taker_reply?: string,
   ) {
     let shared_secret, plain, plain_reply;
     if (role == "taker") {
@@ -184,7 +184,7 @@ export class NostrEscrow {
         plain_reply = await nip04.decrypt(
           priv,
           tweaked_pub,
-          taker_reply.content
+          taker_reply
         );
     } else if (role == "maker") {
       const tweaked_pub = this.tweakPub(taker_pub, contract_hash);
@@ -196,10 +196,10 @@ export class NostrEscrow {
         plain_reply = await nip04.decrypt(
           priv,
           tweaked_pub,
-          taker_reply.content
+          taker_reply
         );
     } else {
-      shared_secret = nsec;
+      shared_secret = priv;
       plain = await this.decryptWithSharedSecret(shared_secret, content);
     }
     return { shared_secret, plain, plain_reply };
