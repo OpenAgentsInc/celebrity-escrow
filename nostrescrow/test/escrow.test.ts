@@ -45,8 +45,10 @@ describe("NostrEscrow", () => {
         });
         expect(event).toBeTruthy()
         const contract2 = await n.getContract("taker", taker_nsec, event.id)
+        let ss = await n.getContractSecretFromEvent(maker_nsec, taker_pub, event)
         expect(contract2.contract_text).toBe("con")
         expect(contract2.shared_secret).toBeTruthy()
+        expect(contract2.shared_secret).toEqual(ss)
         const accept_event = await n.acceptContract({
             taker_nsec: taker_nsec,
             taker_sig: ["sig", "sig2"],

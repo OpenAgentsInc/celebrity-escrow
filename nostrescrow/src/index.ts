@@ -154,6 +154,16 @@ class NostrEscrow {
     return contract_hash;
   }
 
+  async getContractSecretFromEvent(
+    nsec: string,
+    pub: string,
+    sub: Event,
+  ) {
+    const { type, data } = nip19.decode(nsec);
+    assert(type == "nsec", "need nsec")
+    return this.getContractSharedSecret(data as string, pub, this.getHashFromEvent(sub))
+  }
+
   async getContractSharedSecret(
     priv: string,
     pub: string,
