@@ -143,7 +143,7 @@
       //second sig is taker's
       //third sig is escrow's
       // var params = {
-      //     maker_nsec: json.maker_sec,
+      //     maker_nsec: json.maker_nsec,
       //     escrow_pub: json.escrow_pub,
       //     maker_sats: json.maker_sats,
       //     taker_sats: json.taker_sats,
@@ -152,7 +152,7 @@
       //     maker_sig: ""
       // }
       var event = await nescrow.createContract(json);
-      var ekey = await nescrow.getContractSecretFromEvent(json.maker_sec, json.taker_pub, event)
+      var ekey = await nescrow.getContractSecretFromEvent(json.maker_nsec, json.taker_pub, event)
       var port = window.location.port ? `:${window.location.port}` : "";
       var url = window.location.protocol + "//" + window.location.hostname + port + window.location.pathname +
         `?contract=${event.id}&ekey=${ekey}&role=taker`;
