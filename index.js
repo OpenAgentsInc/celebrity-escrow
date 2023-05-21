@@ -10650,14 +10650,21 @@ zoo`.split('\n');
             if (!taker_tag)
                 throw Error("taker pub unknown");
             const taker_pub = taker_tag[1];
-            const contract_hash = this.getHashFromEvent(sub);
             const maker_pub = sub.pubkey;
             const taker_reply = await this.pool.get(this.relays, {
                 "#e": [event_id],
                 authors: [taker_pub],
             });
-            const { shared_secret, plain, plain_reply } = await this.decryptAs(role, priv, maker_pub, taker_pub, contract_hash, sub.content, taker_reply?.content);
-            const [ver, escrow_pub, maker_sats, taker_sats, escrow_sats, contract_text, maker_sig,] = JSON.parse(plain);
+            const { shared_secret, plain, plain_reply, contract_hash } = await this.decryptAs(role, priv, maker_pub, taker_pub, sub, taker_reply?.content);
+            const subcontract_serial = JSON.parse(plain);
+            const [ver, escrow_pub, maker_sats, taker_sats, escrow_sats, contract_text, maker_sig,] = subcontract_serial;
+            const confirm_hash = bytesToHex$1(sha256(utf8Encoder.encode(plain)));
+            if (contract_hash) {
+                assert(contract_hash == confirm_hash, "contract hash does not match, aborting");
+            }
+            else {
+                assert(role == "escrow", "taker and maker must have access to the contract hash");
+            }
             assert(ver == 0, "invalid contract ");
             let taker_sig = null;
             if (plain_reply) {
@@ -10666,45 +10673,49 @@ zoo`.split('\n');
                 taker_sig = sig;
             }
             return {
-                maker_pub: maker_pub,
-                taker_pub: taker_pub,
-                escrow_pub: escrow_pub,
-                maker_sats: maker_sats,
-                taker_sats: taker_sats,
-                escrow_sats: escrow_sats,
-                contract_text: contract_text,
-                maker_sig: maker_sig,
-                taker_sig: taker_sig,
-                contract_hash: contract_hash,
-                shared_secret: shared_secret,
+                maker_pub,
+                taker_pub,
+                escrow_pub,
+                maker_sats,
+                taker_sats,
+                escrow_sats,
+                contract_text,
+                maker_sig,
+                taker_sig,
+                contract_hash: confirm_hash,
+                shared_secret,
             };
         }
-        getHashFromEvent(sub) {
+        async getHashFromEvent(priv, pub, sub) {
             const contract_tag = sub.tags.find((el) => {
                 return el[0] == "hash";
             });
             if (!contract_tag)
                 throw Error("contract hash unknown");
-            const contract_hash = contract_tag[1];
+            const encrypted_hash = contract_tag[1];
+            const contract_hash = await nip04_exports.decrypt(priv, pub, encrypted_hash);
             return contract_hash;
         }
         async getContractSecretFromEvent(nsec, pub, sub) {
             const { type, data } = nip19_exports.decode(nsec);
             assert(type == "nsec", "need nsec");
-            return this.getContractSharedSecret(data, pub, this.getHashFromEvent(sub));
+            return this.getContractSharedSecret(data, pub, await this.getHashFromEvent(data, pub, sub));
         }
         async getContractSharedSecret(priv, pub, contract_hash) {
             const tweaked_pub = this.tweakPub(pub, contract_hash);
             const shared_secret = base64.encode(secp256k1.getSharedSecret(priv, "02" + tweaked_pub).slice(1, 33));
             return shared_secret;
         }
-        async decryptAs(role, priv, maker_pub, taker_pub, contract_hash, content, taker_reply) {
-            let shared_secret, plain, plain_reply;
+        async decryptAs(role, priv, maker_pub, taker_pub, sub, taker_reply) {
+            let shared_secret, plain, plain_reply, contract_hash;
+            let content = sub.content;
             if (role == "taker") {
+                contract_hash = await this.getHashFromEvent(priv, maker_pub, sub);
                 const tweaked_pub = this.tweakPub(maker_pub, contract_hash);
                 await decryptWith(tweaked_pub);
             }
             else if (role == "maker") {
+                contract_hash = await this.getHashFromEvent(priv, taker_pub, sub);
                 const tweaked_pub = this.tweakPub(taker_pub, contract_hash);
                 await decryptWith(tweaked_pub);
             }
@@ -10713,7 +10724,7 @@ zoo`.split('\n');
                 plain = await this.decryptWithSharedSecret(shared_secret, content);
                 plain_reply = await this.decryptWithSharedSecret(shared_secret, taker_reply);
             }
-            return { shared_secret, plain, plain_reply };
+            return { shared_secret, plain, plain_reply, contract_hash };
             async function decryptWith(tweaked_pub) {
                 shared_secret = base64.encode(secp256k1.getSharedSecret(priv, "02" + tweaked_pub).slice(1, 33));
                 plain = await nip04_exports.decrypt(priv, tweaked_pub, content);
@@ -10779,11 +10790,12 @@ zoo`.split('\n');
             ]);
             const subcontract_hash = bytesToHex$1(sha256(utf8Encoder.encode(subcontract_serial)));
             const tweaked_pub = this.tweakPub(params.taker_pub, subcontract_hash);
+            const encrypted_hash = await nip04_exports.encrypt(maker_priv, params.taker_pub, subcontract_hash);
             const ev = {
                 kind: 3333,
                 tags: [
                     ["p", params.taker_pub],
-                    ["hash", subcontract_hash],
+                    ["hash", encrypted_hash],
                 ],
                 content: await nip04_exports.encrypt(maker_priv, tweaked_pub, subcontract_serial),
             };

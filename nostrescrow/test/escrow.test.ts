@@ -77,7 +77,7 @@ describe("NostrEscrow", () => {
           maker_sig: "sig",
           contract_text: "con",
         });
-        const contract_hash = await n.getHashFromEvent(event)
+        const contract_hash = await n.getHashFromEvent(taker_priv, event.pubkey, event)
         const shared_secret = await n.getContractSharedSecret(taker_priv, event.pubkey, contract_hash)
         const decrypt_works = await n.decryptWithSharedSecret(shared_secret, event.content)
         console.log(decrypt_works)
