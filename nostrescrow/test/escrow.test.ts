@@ -8,6 +8,7 @@ import NostrEscrow from "../src"
 import NostrMini from 'nostrmini'
 
 const maker_priv = generatePrivateKey();
+const maker_pub = getPublicKey(maker_priv)
 const maker_nsec = nip19.nsecEncode(maker_priv);
 const taker_priv = generatePrivateKey();
 const taker_nsec = nip19.nsecEncode(taker_priv);
@@ -82,4 +83,12 @@ describe("NostrEscrow", () => {
         const decrypt_works = await n.decryptWithSharedSecret(shared_secret, event.content)
         console.log(decrypt_works)
     })
+
+    it("priv add tweak", async () => {
+        const tpub = await n.tweakAddPub(maker_pub, "deadbeef")
+        const tpriv = await n.tweakAddPriv(maker_priv, "deadbeef")
+        const zpub = getPublicKey(tpriv)
+        expect(zpub).toBe(tpub)
+    })
+
 })

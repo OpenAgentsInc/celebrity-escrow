@@ -3,6 +3,7 @@ import {sha256} from '@noble/hashes/sha256'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import {secp256k1, schnorr} from '@noble/curves/secp256k1'
 import {base64} from '@scure/base'
+import { numberToBytesBE } from '@noble/curves/abstract/utils';
 
 const utf8Encoder = new TextEncoder()
 const utf8Decoder = new TextDecoder()
@@ -332,10 +333,33 @@ class NostrEscrow {
     const pt = secp256k1.ProjectivePoint.fromHex("02" + pub);
     const hash_bn = BigInt("0x" + hex)
     let tweaked = pt.multiply(hash_bn).toHex();
-    if (tweaked.startsWith("03")) {
-      tweaked = pt.multiply(hash_bn).negate().toHex();
-    }
     return tweaked.slice(2);
+  }
+
+  public tweakAddPub(pub: string, hex: string) {
+    const hash_bn = BigInt("0x" + hex)
+    const pt = secp256k1.ProjectivePoint.fromHex("02" + pub);
+    const one = secp256k1.ProjectivePoint.fromPrivateKey(BigInt(1));
+    const mult = one.multiply(hash_bn)
+    let tweaked = mult.add(pt);
+    // this could be negating
+    return tweaked.toHex().slice(2);
+  }
+
+  public tweakAddPriv(priv: string, hex: string) {
+    if (secp256k1.ProjectivePoint.fromPrivateKey(priv).toHex().startsWith("03")) {
+      // we had negated the pub
+      const pinv = secp256k1.CURVE.Fp.sub(secp256k1.CURVE.n, secp256k1.utils.normPrivateKeyToScalar(priv))
+      priv = bytesToHex(numberToBytesBE(pinv, 32)) 
+    }
+    const hash_bn = BigInt("0x" + hex)
+    const pnum = secp256k1.CURVE.Fp.add(BigInt("0x" + priv), hash_bn)
+    const pt = secp256k1.ProjectivePoint.fromPrivateKey(pnum);
+    if (pt.toHex().startsWith("03")) {
+        const inum = secp256k1.CURVE.Fp.sub(secp256k1.CURVE.n, pnum)
+        return bytesToHex(numberToBytesBE(inum, 32))
+    }
+    return bytesToHex(numberToBytesBE(pnum, 32))
   }
 
   private signEvent(
