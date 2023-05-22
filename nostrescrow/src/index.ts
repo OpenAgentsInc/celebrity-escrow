@@ -330,6 +330,7 @@ class NostrEscrow {
   }
 
   private tweakPub(pub: string, hex: string) {
+    // by multiplying we don't have to worry if the ecdh is different depending on who did it
     const pt = secp256k1.ProjectivePoint.fromHex("02" + pub);
     const hash_bn = BigInt("0x" + hex)
     let tweaked = pt.multiply(hash_bn).toHex();
