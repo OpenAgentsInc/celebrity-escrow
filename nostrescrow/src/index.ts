@@ -3,6 +3,7 @@ import {sha256} from '@noble/hashes/sha256'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import {secp256k1, schnorr} from '@noble/curves/secp256k1'
 import {base64} from '@scure/base'
+import { numberToBytesBE } from '@noble/curves/abstract/utils';
 
 const utf8Encoder = new TextEncoder()
 const utf8Decoder = new TextDecoder()
@@ -90,8 +91,6 @@ class NostrEscrow {
     if (!taker_tag) throw Error("taker pub unknown");
     const taker_pub = taker_tag[1];
 
-    const contract_hash = this.getHashFromEvent(sub);
-
     const maker_pub = sub.pubkey;
 
     const taker_reply = await this.pool.get(this.relays, {
@@ -99,15 +98,16 @@ class NostrEscrow {
       authors: [taker_pub],
     });
 
-    const { shared_secret, plain, plain_reply } = await this.decryptAs(
+    const { shared_secret, plain, plain_reply, contract_hash } = await this.decryptAs(
       role,
       priv,
       maker_pub,
       taker_pub,
-      contract_hash,
-      sub.content,
+      sub,
       taker_reply?.content,
     );
+
+    const subcontract_serial = JSON.parse(plain);
 
     const [
       ver,
@@ -117,7 +117,17 @@ class NostrEscrow {
       escrow_sats,
       contract_text,
       maker_sig,
-    ] = JSON.parse(plain);
+    ] = subcontract_serial;
+
+    const confirm_hash = bytesToHex(
+      sha256(utf8Encoder.encode(plain))
+    );
+
+    if (contract_hash) {
+        assert(contract_hash == confirm_hash, "contract hash does not match, aborting")
+    } else {
+        assert(role == "escrow", "taker and maker must have access to the contract hash")
+    }
 
     assert(ver == 0, "invalid contract ");
 
@@ -130,27 +140,28 @@ class NostrEscrow {
     }
 
     return {
-      maker_pub: maker_pub,
-      taker_pub: taker_pub,
-      escrow_pub: escrow_pub,
-      maker_sats: maker_sats,
-      taker_sats: taker_sats,
-      escrow_sats: escrow_sats,
-      contract_text: contract_text,
-      maker_sig: maker_sig,
-      taker_sig: taker_sig,
-      contract_hash: contract_hash,
-      shared_secret: shared_secret,
+      maker_pub,
+      taker_pub,
+      escrow_pub,
+      maker_sats,
+      taker_sats,
+      escrow_sats,
+      contract_text,
+      maker_sig,
+      taker_sig,
+      contract_hash: confirm_hash,
+      shared_secret,
     };
   }
 
-  public getHashFromEvent(sub: Event) {
+  public async getHashFromEvent(priv: string, pub: string, sub: Event) {
     const contract_tag = sub.tags.find((el) => {
       return el[0] == "hash";
     });
     if (!contract_tag)
       throw Error("contract hash unknown");
-    const contract_hash = contract_tag[1];
+    const encrypted_hash = contract_tag[1];
+    const contract_hash = await nip04.decrypt(priv, pub, encrypted_hash)
     return contract_hash;
   }
 
@@ -161,7 +172,7 @@ class NostrEscrow {
   ) {
     const { type, data } = nip19.decode(nsec);
     assert(type == "nsec", "need nsec")
-    return this.getContractSharedSecret(data as string, pub, this.getHashFromEvent(sub))
+    return this.getContractSharedSecret(data as string, pub, await this.getHashFromEvent(data as string, pub, sub))
   }
 
   async getContractSharedSecret(
@@ -181,15 +192,18 @@ class NostrEscrow {
     priv: string,
     maker_pub: string,
     taker_pub: string,
-    contract_hash: string,
-    content: string,
+    sub: Event,
     taker_reply?: string,
   ) {
-    let shared_secret, plain, plain_reply;
+    let shared_secret, plain, plain_reply, contract_hash;
+    let content = sub.content
+    
     if (role == "taker") {
+      contract_hash = await this.getHashFromEvent(priv, maker_pub, sub);
       const tweaked_pub = this.tweakPub(maker_pub, contract_hash);
       await decryptWith(tweaked_pub);
     } else if (role == "maker") {
+      contract_hash = await this.getHashFromEvent(priv, taker_pub, sub);
       const tweaked_pub = this.tweakPub(taker_pub, contract_hash);
       await decryptWith(tweaked_pub);
     } else {
@@ -197,7 +211,7 @@ class NostrEscrow {
       plain = await this.decryptWithSharedSecret(shared_secret, content);
       plain_reply = await this.decryptWithSharedSecret(shared_secret, taker_reply);
     }
-    return { shared_secret, plain, plain_reply };
+    return { shared_secret, plain, plain_reply, contract_hash };
 
     async function decryptWith(tweaked_pub: string) {
       shared_secret = base64.encode(
@@ -301,12 +315,13 @@ class NostrEscrow {
     );
 
     const tweaked_pub = this.tweakPub(params.taker_pub, subcontract_hash);
+    const encrypted_hash = await nip04.encrypt(maker_priv, params.taker_pub, subcontract_hash)
 
     const ev = {
       kind: 3333,
       tags: [
         ["p", params.taker_pub],
-        ["hash", subcontract_hash],
+        ["hash", encrypted_hash],
       ],
       content: await nip04.encrypt(maker_priv, tweaked_pub, subcontract_serial),
     };
@@ -315,13 +330,37 @@ class NostrEscrow {
   }
 
   private tweakPub(pub: string, hex: string) {
+    // by multiplying we don't have to worry if the ecdh is different depending on who did it
     const pt = secp256k1.ProjectivePoint.fromHex("02" + pub);
     const hash_bn = BigInt("0x" + hex)
     let tweaked = pt.multiply(hash_bn).toHex();
-    if (tweaked.startsWith("03")) {
-      tweaked = pt.multiply(hash_bn).negate().toHex();
-    }
     return tweaked.slice(2);
+  }
+
+  public tweakAddPub(pub: string, hex: string) {
+    const hash_bn = BigInt("0x" + hex)
+    const pt = secp256k1.ProjectivePoint.fromHex("02" + pub);
+    const one = secp256k1.ProjectivePoint.fromPrivateKey(BigInt(1));
+    const mult = one.multiply(hash_bn)
+    let tweaked = mult.add(pt);
+    // this could be negating
+    return tweaked.toHex().slice(2);
+  }
+
+  public tweakAddPriv(priv: string, hex: string) {
+    if (secp256k1.ProjectivePoint.fromPrivateKey(priv).toHex().startsWith("03")) {
+      // we had negated the pub
+      const pinv = secp256k1.CURVE.Fp.sub(secp256k1.CURVE.n, secp256k1.utils.normPrivateKeyToScalar(priv))
+      priv = bytesToHex(numberToBytesBE(pinv, 32)) 
+    }
+    const hash_bn = BigInt("0x" + hex)
+    const pnum = secp256k1.CURVE.Fp.add(BigInt("0x" + priv), hash_bn)
+    const pt = secp256k1.ProjectivePoint.fromPrivateKey(pnum);
+    if (pt.toHex().startsWith("03")) {
+        const inum = secp256k1.CURVE.Fp.sub(secp256k1.CURVE.n, pnum)
+        return bytesToHex(numberToBytesBE(inum, 32))
+    }
+    return bytesToHex(numberToBytesBE(pnum, 32))
   }
 
   private signEvent(
